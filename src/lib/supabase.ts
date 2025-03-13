@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = 'https://tdameuxkfymxzatpvvin.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkYW1ldXhrZnlteHphdHB2dmluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjA1ODcsImV4cCI6MjA1NzM5NjU4N30.kaugD32aJ0y9UOm6MuEEeOz4xBalO5rizV2AelV_BAM';
 
+// Créer le client Supabase avec la clé d'API anonyme
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
@@ -104,3 +105,13 @@ export const testRpcFunction = async (fileName: string, projetId: number, storag
     return { data: null, error };
   }
 };
+
+// Fonction pour obtenir un client Supabase avec la clé de service
+// Note: Cette fonction est commentée car elle nécessite la clé de service qui ne doit pas être exposée côté client
+// Pour une solution de production, utilisez des fonctions Edge/Serverless pour les opérations nécessitant la clé de service
+/*
+export const getServiceClient = () => {
+  const serviceKey = 'VOTRE_CLE_DE_SERVICE'; // Ne jamais exposer cette clé côté client!
+  return createClient(supabaseUrl, serviceKey);
+};
+*/
