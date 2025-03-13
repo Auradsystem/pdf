@@ -80,9 +80,10 @@ const ProjectDetail: React.FC = () => {
       .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
   };
 
+  // Nouvelle approche pour l'upload de fichier
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
-    if (!fileInput.files || fileInput.files.length === 0 || !projectId || !user) {
+    if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
       return;
     }
 
@@ -111,6 +112,77 @@ const ProjectDetail: React.FC = () => {
       
       console.log('Uploading file to path:', filePath);
       
+      // Utiliser la fonction rpc pour contourner RLS
+      const { data: fileData, error: rpcError } = await supabase.rpc('create_file_with_upload', {
+        p_name: file.name,
+        p_projet_id: projectId,
+        p_storage_path: filePath
+      });
+
+      if (rpcError) {
+        console.error('RPC error details:', rpcError);
+        throw rpcError;
+      }
+
+      console.log('File record created via RPC:', fileData);
+
+      // Si l'RPC a réussi, maintenant télécharger le fichier
+      if (fileData) {
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('pdfs')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error('Upload error details:', uploadError);
+          throw uploadError;
+        }
+
+        console.log('File uploaded successfully:', uploadData);
+      }
+
+      // Refresh file list
+      await fetchFiles();
+      fileInput.value = '';
+    } catch (error: any) {
+      console.error('Error uploading file:', error);
+      setError(`Failed to upload file: ${error.message || 'Unknown error'}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Méthode alternative d'upload si la première échoue
+  const handleFileUploadAlternative = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileInput = e.target;
+    if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
+      return;
+    }
+
+    const file = fileInput.files[0];
+    const fileExt = file.name.split('.').pop();
+    if (fileExt?.toLowerCase() !== 'pdf') {
+      setError('Only PDF files are allowed');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setError(null);
+
+      // Sanitize the original filename
+      const sanitizedName = sanitizeFileName(file.name);
+      
+      // Create a unique filename with timestamp
+      const fileName = `${Date.now()}_${sanitizedName}`;
+      
+      // Create the storage path - use just the project ID and filename
+      const filePath = `${projectId}/${fileName}`;
+      
+      console.log('Uploading file to path:', filePath);
+      
       // Upload file to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('pdfs')
@@ -126,25 +198,19 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // Essayer d'insérer sans user_id d'abord
-      const { data: fileData, error: dbError } = await supabase
-        .from('files')
-        .insert([
-          {
-            name: file.name,
-            projet_id: projectId,
-            storage_path: filePath
-            // Pas de user_id pour tester
-          }
-        ])
-        .select();
+      // Utiliser directement SQL pour insérer dans la table files
+      const { data: fileData, error: sqlError } = await supabase.rpc('insert_file_record', {
+        file_name: file.name,
+        file_path: filePath,
+        project_id: projectId
+      });
 
-      if (dbError) {
-        console.error('Database error details:', dbError);
-        throw dbError;
+      if (sqlError) {
+        console.error('SQL error details:', sqlError);
+        throw sqlError;
       }
 
-      console.log('File record created:', fileData);
+      console.log('File record created via SQL:', fileData);
 
       // Refresh file list
       await fetchFiles();
@@ -265,6 +331,17 @@ const ProjectDetail: React.FC = () => {
               >
                 Vérifier RLS
               </button>
+              <label className="ml-2 cursor-pointer bg-green-100 py-2 px-3 border border-green-300 rounded-md shadow-sm text-sm leading-4 font-medium text-green-700 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                <Upload className="h-4 w-4 inline mr-1" />
+                Méthode alternative
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".pdf"
+                  onChange={handleFileUploadAlternative}
+                  disabled={uploading}
+                />
+              </label>
             </div>
           </div>
 

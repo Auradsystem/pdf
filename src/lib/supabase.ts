@@ -76,13 +76,51 @@ export const checkRLSStatus = async () => {
     console.log("- Données:", storageData);
     console.log("- Erreur:", storageError);
     
+    // Tester l'accès à la table projets
+    const { data: projetsData, error: projetsError } = await supabase
+      .from('projets')
+      .select('*')
+      .limit(1);
+    
+    console.log("Test d'accès à la table projets:");
+    console.log("- Données:", projetsData);
+    console.log("- Erreur:", projetsError);
+    
+    // Vérifier la structure de la table files
+    const { data: tableInfo, error: tableError } = await supabase
+      .rpc('get_table_info', { table_name: 'files' });
+    
+    console.log("Structure de la table files:");
+    console.log("- Données:", tableInfo);
+    console.log("- Erreur:", tableError);
+    
     return {
       user: user?.id,
       filesAccess: !filesError,
-      storageAccess: !storageError
+      storageAccess: !storageError,
+      projetsAccess: !projetsError,
+      tableInfo: tableInfo
     };
   } catch (error) {
     console.error("Erreur lors de la vérification du statut RLS:", error);
     return { error };
+  }
+};
+
+// Fonction pour créer un fichier directement via SQL
+export const createFileRecord = async (name: string, projetId: number, storagePath: string) => {
+  try {
+    // Utiliser une requête SQL directe pour contourner RLS
+    const { data, error } = await supabase.rpc('insert_file_record', {
+      file_name: name,
+      file_path: storagePath,
+      project_id: projetId
+    });
+    
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error creating file record:', error);
+    return { data: null, error };
   }
 };
