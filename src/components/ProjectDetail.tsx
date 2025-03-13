@@ -66,7 +66,7 @@ const ProjectDetail: React.FC = () => {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
-    if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
+    if (!fileInput.files || fileInput.files.length === 0 || !projectId || !user) {
       return;
     }
 
@@ -81,15 +81,31 @@ const ProjectDetail: React.FC = () => {
       setUploading(true);
       setError(null);
 
+      // Create bucket if it doesn't exist
+      const { data: bucketData, error: bucketError } = await supabase.storage.getBucket('pdfs');
+      if (bucketError && bucketError.message.includes('not found')) {
+        // Bucket doesn't exist, create it
+        await supabase.storage.createBucket('pdfs', {
+          public: true,
+          fileSizeLimit: 10485760, // 10MB
+        });
+      }
+
       // Upload file to Supabase Storage
       const fileName = `${Date.now()}_${file.name}`;
-      const filePath = `${user?.id}/${projectId}/${fileName}`;
+      const filePath = `${user.id}/${projectId}/${fileName}`;
       
       const { error: uploadError } = await supabase.storage
         .from('pdfs')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Upload error details:', uploadError);
+        throw uploadError;
+      }
 
       // Add file record to database
       const { error: dbError } = await supabase
@@ -102,14 +118,17 @@ const ProjectDetail: React.FC = () => {
           }
         ]);
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error('Database error details:', dbError);
+        throw dbError;
+      }
 
       // Refresh file list
-      fetchFiles();
+      await fetchFiles();
       fileInput.value = '';
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file:', error);
-      setError('Failed to upload file');
+      setError(`Failed to upload file: ${error.message || 'Unknown error'}`);
     } finally {
       setUploading(false);
     }
