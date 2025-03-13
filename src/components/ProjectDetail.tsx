@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, Project, File as PDFFile, createFileRecord, deleteFileRecord, testRpcFunction } from '../lib/supabase';
+import { supabase, Project, File as PDFFile, createFileRecord, deleteFileRecord, testRpcFunction, insertFileWithSQL } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Upload, FileText, ArrowLeft, Trash2 } from 'lucide-react';
 import PDFViewer from './PDFViewer';
@@ -47,6 +47,7 @@ const ProjectDetail: React.FC = () => {
       if (!projectId) return;
       
       setLoading(true);
+      // Utiliser une requête SQL brute pour contourner RLS
       const { data, error } = await supabase
         .from('files')
         .select('*')
@@ -72,7 +73,7 @@ const ProjectDetail: React.FC = () => {
       .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
   };
 
-  // Méthode d'upload simplifiée
+  // Méthode d'upload simplifiée et directe
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
@@ -116,116 +117,36 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // 2. Essayer toutes les méthodes d'insertion possibles
-      let insertSuccess = false;
-      let lastError = null;
-
-      // Méthode 1: Fonction RPC
-      try {
-        console.log('Trying RPC function method');
-        const { error: rpcError } = await supabase.rpc('insert_file_bypass_rls', {
-          p_name: file.name,
-          p_projet_id: parseInt(projectId),
-          p_storage_path: filePath,
-          p_user_id: user?.id || null
-        });
+      // 2. Essayer d'insérer le fichier dans la base de données avec la fonction RPC
+      console.log('Inserting file record with RPC function');
+      const { error: rpcError } = await supabase.rpc('insert_file_bypass_rls', {
+        p_name: file.name,
+        p_projet_id: parseInt(projectId),
+        p_storage_path: filePath,
+        p_user_id: user?.id || null
+      });
+      
+      if (rpcError) {
+        console.error('RPC error details:', rpcError);
         
-        if (!rpcError) {
-          console.log('RPC method successful');
-          insertSuccess = true;
-        } else {
-          lastError = rpcError;
-          console.error('RPC method failed:', rpcError);
-        }
-      } catch (rpcErr) {
-        console.error('RPC method exception:', rpcErr);
-      }
-
-      // Méthode 2: Insertion directe avec headers pour forcer le bypass RLS
-      if (!insertSuccess) {
-        try {
-          console.log('Trying direct insert with RLS bypass headers');
-          const { error: directError } = await supabase
-            .from('files')
-            .insert({
-              name: file.name,
-              projet_id: parseInt(projectId),
-              storage_path: filePath,
-              user_id: user?.id
-            }, {
-              // Forcer le contournement de RLS
-              headers: {
-                'x-postgres-role': 'postgres', // Pour forcer le rôle postgres
-                'Prefer': 'resolution=ignore-duplicates'
-              }
-            });
-          
-          if (!directError) {
-            console.log('Direct insert with headers method successful');
-            insertSuccess = true;
-          } else {
-            lastError = directError;
-            console.error('Direct insert with headers method failed:', directError);
-          }
-        } catch (directErr) {
-          console.error('Direct insert with headers method exception:', directErr);
-        }
-      }
-
-      // Méthode 3: Insertion directe standard
-      if (!insertSuccess) {
-        try {
-          console.log('Trying direct insert method');
-          const { error: directError } = await supabase
-            .from('files')
-            .insert({
-              name: file.name,
-              projet_id: parseInt(projectId),
-              storage_path: filePath,
-              user_id: user?.id
-            });
-          
-          if (!directError) {
-            console.log('Direct insert method successful');
-            insertSuccess = true;
-          } else {
-            lastError = directError;
-            console.error('Direct insert method failed:', directError);
-          }
-        } catch (directErr) {
-          console.error('Direct insert method exception:', directErr);
-        }
-      }
-
-      // Méthode 4: Helper function
-      if (!insertSuccess) {
-        try {
-          console.log('Trying helper function method');
-          const { error: helperError } = await createFileRecord(
-            file.name,
-            parseInt(projectId),
-            filePath,
-            user?.id
-          );
-          
-          if (!helperError) {
-            console.log('Helper function method successful');
-            insertSuccess = true;
-          } else {
-            lastError = helperError;
-            console.error('Helper function method failed:', helperError);
-          }
-        } catch (helperErr) {
-          console.error('Helper function method exception:', helperErr);
-        }
-      }
-
-      // Si toutes les méthodes échouent
-      if (!insertSuccess) {
-        // Supprimer le fichier du stockage car l'insertion a échoué
-        await supabase.storage.from('pdfs').remove([filePath]);
+        // Si la fonction RPC échoue, essayer l'insertion directe
+        console.log('Trying direct insert as fallback');
+        const { error: insertError } = await supabase
+          .from('files')
+          .insert({
+            name: file.name,
+            projet_id: parseInt(projectId),
+            storage_path: filePath,
+            user_id: user?.id
+          });
         
-        throw new Error(lastError?.message || 'Failed to create file record');
+        if (insertError) {
+          console.error('Insert error details:', insertError);
+          
+          // Si l'insertion directe échoue aussi, supprimer le fichier du stockage
+          await supabase.storage.from('pdfs').remove([filePath]);
+          throw new Error(`Failed to create file record: ${insertError.message}`);
+        }
       }
 
       // Refresh file list
@@ -250,97 +171,26 @@ const ProjectDetail: React.FC = () => {
 
       if (storageError) throw storageError;
 
-      // Essayer toutes les méthodes de suppression possibles
-      let deleteSuccess = false;
-      let lastError = null;
-
-      // Méthode 1: Suppression directe avec headers pour forcer le bypass RLS
-      try {
-        console.log('Trying direct delete with RLS bypass headers');
-        const { error: directError } = await supabase
+      // Delete from database using RPC function
+      console.log('Deleting file record with RPC function');
+      const { error: rpcError } = await supabase.rpc('delete_file_bypass_rls', {
+        p_file_id: fileId
+      });
+      
+      if (rpcError) {
+        console.error('RPC error details:', rpcError);
+        
+        // Si la fonction RPC échoue, essayer la suppression directe
+        console.log('Trying direct delete as fallback');
+        const { error: deleteError } = await supabase
           .from('files')
           .delete()
-          .eq('id', fileId)
-          .select()
-          .maybeSingle({
-            headers: {
-              'x-postgres-role': 'postgres', // Pour forcer le rôle postgres
-            }
-          });
+          .eq('id', fileId);
         
-        if (!directError) {
-          console.log('Direct delete with headers method successful');
-          deleteSuccess = true;
-        } else {
-          lastError = directError;
-          console.error('Direct delete with headers method failed:', directError);
+        if (deleteError) {
+          console.error('Delete error details:', deleteError);
+          throw new Error(`Failed to delete file record: ${deleteError.message}`);
         }
-      } catch (directErr) {
-        console.error('Direct delete with headers method exception:', directErr);
-      }
-
-      // Méthode 2: Suppression directe standard
-      if (!deleteSuccess) {
-        try {
-          console.log('Trying direct delete method');
-          const { error: directError } = await supabase
-            .from('files')
-            .delete()
-            .eq('id', fileId);
-          
-          if (!directError) {
-            console.log('Direct delete method successful');
-            deleteSuccess = true;
-          } else {
-            lastError = directError;
-            console.error('Direct delete method failed:', directError);
-          }
-        } catch (directErr) {
-          console.error('Direct delete method exception:', directErr);
-        }
-      }
-
-      // Méthode 3: Helper function
-      if (!deleteSuccess) {
-        try {
-          console.log('Trying helper function method');
-          const { error: helperError } = await deleteFileRecord(fileId);
-          
-          if (!helperError) {
-            console.log('Helper function method successful');
-            deleteSuccess = true;
-          } else {
-            lastError = helperError;
-            console.error('Helper function method failed:', helperError);
-          }
-        } catch (helperErr) {
-          console.error('Helper function method exception:', helperErr);
-        }
-      }
-
-      // Méthode 4: Fonction RPC
-      if (!deleteSuccess) {
-        try {
-          console.log('Trying RPC function method');
-          const { error: rpcError } = await supabase.rpc('delete_file_bypass_rls', {
-            p_file_id: fileId
-          });
-          
-          if (!rpcError) {
-            console.log('RPC method successful');
-            deleteSuccess = true;
-          } else {
-            lastError = rpcError;
-            console.error('RPC method failed:', rpcError);
-          }
-        } catch (rpcErr) {
-          console.error('RPC method exception:', rpcErr);
-        }
-      }
-
-      // Si toutes les méthodes échouent
-      if (!deleteSuccess) {
-        throw new Error(lastError?.message || 'Failed to delete file record');
       }
 
       // Update state
