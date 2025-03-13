@@ -86,20 +86,45 @@ const ProjectDetail: React.FC = () => {
 
       if (uploadError) throw uploadError;
 
-      // Données d'insertion pour le débogage
-      const insertData = {
-        name: file.name,
-        projet_id: parseInt(projectId),
-        storage_path: filePath,
-        user_id: user.id
-      };
-      
-      console.log("Données d'insertion:", insertData);
+      // CODE DE DÉBOGAGE
+      console.log("Détails du projet et de l'utilisateur :");
+      console.log("User ID:", user.id);
+      console.log("Project ID:", projectId);
 
-      // 2. Create file record in database
+      // Vérifier que le projet existe et appartient à l'utilisateur connecté
+      const { data: projectCheck } = await supabase
+        .from('projets')
+        .select('*')
+        .eq('id', parseInt(projectId))
+        .eq('user_id', user.id)
+        .single();
+        
+      console.log("Projet trouvé:", projectCheck);
+
+      // Si le projet n'appartient pas à l'utilisateur, afficher un message clair
+      if (!projectCheck) {
+        console.error("PROBLÈME: Ce projet n'existe pas ou n'appartient pas à l'utilisateur");
+        setError("Vous n'avez pas les droits sur ce projet");
+        
+        // Essayer de nettoyer le fichier uploadé
+        try {
+          await supabase.storage.from('pdfs').remove([filePath]);
+        } catch (cleanupError) {
+          console.error('Error cleaning up storage after project check failed:', cleanupError);
+        }
+        
+        return;
+      }
+
+      // Procéder à l'insertion normalement
       const { data, error: dbError } = await supabase
         .from('files')
-        .insert(insertData)
+        .insert({
+          name: file.name,
+          projet_id: parseInt(projectId),
+          storage_path: filePath,
+          user_id: user.id
+        })
         .select()
         .single();
 
