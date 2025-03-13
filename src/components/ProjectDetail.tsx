@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, Project, File as PDFFile } from '../lib/supabase';
+import { supabase, Project, File as PDFFile, checkRLSStatus } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Upload, FileText, ArrowLeft, Trash2 } from 'lucide-react';
+import { Upload, FileText, ArrowLeft, Trash2, AlertCircle } from 'lucide-react';
 import PDFViewer from './PDFViewer';
 
 const ProjectDetail: React.FC = () => {
@@ -13,6 +13,7 @@ const ProjectDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<PDFFile | null>(null);
+  const [rlsStatus, setRlsStatus] = useState<any>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -20,8 +21,15 @@ const ProjectDetail: React.FC = () => {
     if (projectId) {
       fetchProject();
       fetchFiles();
+      checkRLS();
     }
   }, [projectId]);
+
+  const checkRLS = async () => {
+    const status = await checkRLSStatus();
+    setRlsStatus(status);
+    console.log("RLS Status:", status);
+  };
 
   const fetchProject = async () => {
     try {
@@ -31,7 +39,6 @@ const ProjectDetail: React.FC = () => {
         .from('projets')
         .select('*')
         .eq('id', projectId)
-        .eq('user_id', user.id)
         .single();
 
       if (error) throw error;
@@ -90,6 +97,9 @@ const ProjectDetail: React.FC = () => {
       setUploading(true);
       setError(null);
 
+      // Vérifier à nouveau le statut RLS avant l'upload
+      await checkRLS();
+
       // Sanitize the original filename
       const sanitizedName = sanitizeFileName(file.name);
       
@@ -116,15 +126,15 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // Add file record to database - simplified with RLS disabled
+      // Essayer d'insérer sans user_id d'abord
       const { data: fileData, error: dbError } = await supabase
         .from('files')
         .insert([
           {
-            name: file.name, // Keep original name for display
+            name: file.name,
             projet_id: projectId,
-            storage_path: filePath,
-            user_id: user.id // Still include user_id for data integrity
+            storage_path: filePath
+            // Pas de user_id pour tester
           }
         ])
         .select();
@@ -198,6 +208,20 @@ const ProjectDetail: React.FC = () => {
         </button>
       </div>
 
+      {rlsStatus && (
+        <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4">
+          <div className="flex">
+            <AlertCircle className="h-5 w-5 text-blue-400" />
+            <div className="ml-3">
+              <p className="text-sm text-blue-700">Statut RLS:</p>
+              <pre className="mt-1 text-xs text-blue-700 overflow-auto">
+                {JSON.stringify(rlsStatus, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
           <div className="flex">
@@ -235,6 +259,12 @@ const ProjectDetail: React.FC = () => {
                   disabled={uploading}
                 />
               </label>
+              <button
+                onClick={checkRLS}
+                className="ml-2 inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Vérifier RLS
+              </button>
             </div>
           </div>
 

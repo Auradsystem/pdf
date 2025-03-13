@@ -47,3 +47,42 @@ export type File = {
   storage_path: string;
   user_id?: string; // Add user_id field to match database schema
 };
+
+// Fonction de débogage pour vérifier les tables et leurs politiques RLS
+export const checkRLSStatus = async () => {
+  try {
+    console.log("Vérification du statut RLS...");
+    
+    // Vérifier si l'utilisateur est connecté
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log("Utilisateur connecté:", user?.id);
+    
+    // Tester l'accès à la table files
+    const { data: filesData, error: filesError } = await supabase
+      .from('files')
+      .select('*')
+      .limit(1);
+    
+    console.log("Test d'accès à la table files:");
+    console.log("- Données:", filesData);
+    console.log("- Erreur:", filesError);
+    
+    // Tester l'accès au bucket de stockage
+    const { data: storageData, error: storageError } = await supabase.storage
+      .from('pdfs')
+      .list();
+    
+    console.log("Test d'accès au bucket de stockage 'pdfs':");
+    console.log("- Données:", storageData);
+    console.log("- Erreur:", storageError);
+    
+    return {
+      user: user?.id,
+      filesAccess: !filesError,
+      storageAccess: !storageError
+    };
+  } catch (error) {
+    console.error("Erreur lors de la vérification du statut RLS:", error);
+    return { error };
+  }
+};
