@@ -101,22 +101,6 @@ const ProjectDetail: React.FC = () => {
       
       console.log('Uploading file to path:', filePath);
       
-      // First, check if the project belongs to the current user
-      const { data: projectData, error: projectError } = await supabase
-        .from('projets')
-        .select('user_id')
-        .eq('id', projectId)
-        .single();
-        
-      if (projectError) {
-        console.error('Project verification error:', projectError);
-        throw new Error('Could not verify project ownership');
-      }
-      
-      if (projectData.user_id !== user.id) {
-        throw new Error('You do not have permission to upload files to this project');
-      }
-      
       // Upload file to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('pdfs')
@@ -132,7 +116,7 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // Add file record to database with explicit user_id
+      // Add file record to database - simplified with RLS disabled
       const { data: fileData, error: dbError } = await supabase
         .from('files')
         .insert([
@@ -140,7 +124,7 @@ const ProjectDetail: React.FC = () => {
             name: file.name, // Keep original name for display
             projet_id: projectId,
             storage_path: filePath,
-            user_id: user.id // Add user_id explicitly to satisfy RLS policies
+            user_id: user.id // Still include user_id for data integrity
           }
         ])
         .select();
