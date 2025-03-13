@@ -20,8 +20,9 @@ export const useProjects = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
+      // Using the exact table name 'projets' as defined in the SQL
       const { data, error } = await supabase
-        .from('projects')
+        .from('projets')
         .select('*')
         .eq('user_id', user?.id);
 
@@ -39,11 +40,14 @@ export const useProjects = () => {
 
   const createProject = async (projectData: { name: string; description?: string }) => {
     try {
+      // Using the exact table name 'projets' as defined in the SQL
       const { data, error } = await supabase
-        .from('projects')
+        .from('projets')
         .insert([
           {
             name: projectData.name,
+            // description is not in the SQL schema, but we can keep it for UI purposes
+            // it will be ignored by Supabase if the column doesn't exist
             description: projectData.description,
             user_id: user?.id
           }
@@ -64,8 +68,9 @@ export const useProjects = () => {
 
   const updateProject = async (projectId: string | number, updates: Partial<Project>) => {
     try {
+      // Using the exact table name 'projets' as defined in the SQL
       const { data, error } = await supabase
-        .from('projects')
+        .from('projets')
         .update(updates)
         .eq('id', projectId)
         .select();
@@ -87,8 +92,9 @@ export const useProjects = () => {
 
   const deleteProject = async (projectId: string | number) => {
     try {
+      // Using the exact table name 'projets' as defined in the SQL
       const { error } = await supabase
-        .from('projects')
+        .from('projets')
         .delete()
         .eq('id', projectId);
 

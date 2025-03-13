@@ -18,6 +18,7 @@ export const useFiles = (projectId?: string | number) => {
   const fetchFiles = async () => {
     try {
       setLoading(true);
+      // Using the exact table name 'files' and column name 'projet_id' as defined in the SQL
       const { data, error } = await supabase
         .from('files')
         .select('*')
@@ -27,14 +28,7 @@ export const useFiles = (projectId?: string | number) => {
         throw error;
       }
 
-      // Ensure files have both projet_id and project_id for compatibility
-      const processedFiles = (data || []).map(file => ({
-        ...file,
-        project_id: file.projet_id,
-        file_path: file.storage_path
-      }));
-
-      setFiles(processedFiles);
+      setFiles(data || []);
     } catch (error) {
       console.error('Error fetching files:', error);
     } finally {
@@ -56,7 +50,7 @@ export const useFiles = (projectId?: string | number) => {
         throw uploadError;
       }
 
-      // Create file record in database
+      // Create file record in database using the exact table name 'files' and column name 'projet_id'
       const { data, error: dbError } = await supabase
         .from('files')
         .insert([
@@ -72,12 +66,7 @@ export const useFiles = (projectId?: string | number) => {
         throw dbError;
       }
 
-      // Add file_path for compatibility
-      const newFile = data?.[0] ? {
-        ...data[0],
-        project_id: data[0].projet_id,
-        file_path: data[0].storage_path
-      } : null;
+      const newFile = data?.[0] || null;
 
       if (newFile) {
         setFiles(prev => [...prev, newFile]);
@@ -106,7 +95,7 @@ export const useFiles = (projectId?: string | number) => {
         }
       }
 
-      // Delete from database
+      // Delete from database using the exact table name 'files'
       const { error: dbError } = await supabase
         .from('files')
         .delete()

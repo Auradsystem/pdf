@@ -125,7 +125,7 @@ export const FileDetailPage: React.FC = () => {
   };
 
   const currentPageAnnotations = annotations.filter(a => a.page_number === currentPage);
-  const projectId = file.project_id || file.projet_id;
+  const projectId = file.projet_id; // Using the exact column name from the database
 
   return (
     <Layout>

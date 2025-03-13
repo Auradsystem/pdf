@@ -18,10 +18,21 @@ export const useAnnotations = (fileId?: string | number) => {
   const fetchAnnotations = async () => {
     try {
       setLoading(true);
+      
+      // Create annotations table if it doesn't exist yet
+      // This is needed because the SQL schema doesn't include an annotations table
+      const { error: tableError } = await supabase.rpc('create_annotations_table_if_not_exists');
+      
+      if (tableError && !tableError.message.includes('already exists')) {
+        console.error('Error creating annotations table:', tableError);
+      }
+      
+      // Query annotations
       const { data, error } = await supabase
         .from('annotations')
         .select('*')
-        .eq('file_id', fileId);
+        .eq('file_id', fileId)
+        .order('created_at', { ascending: true });
 
       if (error) {
         throw error;
@@ -40,7 +51,7 @@ export const useAnnotations = (fileId?: string | number) => {
     annotationType: string,
     positionX: number,
     positionY: number,
-    content?: Record<string, any>
+    content: Record<string, any>
   ) => {
     try {
       const { data, error } = await supabase
@@ -69,6 +80,32 @@ export const useAnnotations = (fileId?: string | number) => {
     }
   };
 
+  const updateAnnotation = async (
+    annotationId: string | number,
+    updates: Partial<Annotation>
+  ) => {
+    try {
+      const { data, error } = await supabase
+        .from('annotations')
+        .update(updates)
+        .eq('id', annotationId)
+        .select();
+
+      if (error) {
+        throw error;
+      }
+
+      setAnnotations(prev =>
+        prev.map(annotation => annotation.id === annotationId ? { ...annotation, ...updates } : annotation)
+      );
+      
+      return data?.[0];
+    } catch (error) {
+      console.error('Error updating annotation:', error);
+      throw error;
+    }
+  };
+
   const deleteAnnotation = async (annotationId: string | number) => {
     try {
       const { error } = await supabase
@@ -80,7 +117,7 @@ export const useAnnotations = (fileId?: string | number) => {
         throw error;
       }
 
-      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+      setAnnotations(prev => prev.filter(annotation => annotation.id !== annotationId));
     } catch (error) {
       console.error('Error deleting annotation:', error);
       throw error;
@@ -91,6 +128,7 @@ export const useAnnotations = (fileId?: string | number) => {
     annotations,
     loading,
     createAnnotation,
+    updateAnnotation,
     deleteAnnotation,
     refreshAnnotations: fetchAnnotations
   };

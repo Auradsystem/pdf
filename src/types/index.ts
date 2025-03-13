@@ -8,17 +8,15 @@ export interface Project {
   created_at: string;
   name: string;
   user_id: string;
-  description?: string;
+  description?: string; // Optional field for UI purposes
 }
 
 export interface PDFFile {
   id: number | string;
   created_at: string;
   name: string;
-  projet_id: number | string;
-  project_id?: number | string; // Alternative spelling
+  projet_id: number | string; // Matches the exact column name in the database
   storage_path: string;
-  file_path?: string; // Alternative property name
 }
 
 export interface Annotation {
