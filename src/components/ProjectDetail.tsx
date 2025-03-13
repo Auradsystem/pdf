@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, Project, File as PDFFile, createFileRecord } from '../lib/supabase';
+import { supabase, Project, File as PDFFile, createFileRecord, deleteFileRecord, testRpcFunction } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Upload, FileText, ArrowLeft, Trash2 } from 'lucide-react';
 import PDFViewer from './PDFViewer';
@@ -72,7 +72,7 @@ const ProjectDetail: React.FC = () => {
       .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
   };
 
-  // Méthode d'upload avec service role key
+  // Méthode d'upload avec plusieurs tentatives
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
@@ -116,98 +116,40 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // 2. Create file record in database using a direct SQL query to bypass RLS
-      const { data: fileData, error: dbError } = await supabase.rpc('create_file_without_rls', {
-        file_name: file.name,
-        project_id: parseInt(projectId),
-        storage_path: filePath,
-        user_id: user?.id
-      });
+      // 2. Essayons d'abord avec la nouvelle fonction RPC
+      console.log('Tentative avec la nouvelle fonction RPC');
+      const { data: rpcData, error: rpcError } = await testRpcFunction(
+        file.name,
+        parseInt(projectId),
+        filePath,
+        user?.id
+      );
 
-      if (dbError) {
-        console.error('Database error details:', dbError);
+      if (rpcError) {
+        console.error('Erreur avec la nouvelle fonction RPC:', rpcError);
         
-        // Si l'insertion échoue, supprimer le fichier du stockage
-        await supabase.storage.from('pdfs').remove([filePath]);
+        // Si la fonction RPC échoue, essayons l'insertion directe
+        console.log('Tentative d'insertion directe');
+        const { data: directData, error: directError } = await createFileRecord(
+          file.name,
+          parseInt(projectId),
+          filePath,
+          user?.id
+        );
+
+        if (directError) {
+          console.error('Erreur insertion directe:', directError);
+          
+          // Si les deux méthodes échouent, supprimer le fichier du stockage
+          await supabase.storage.from('pdfs').remove([filePath]);
+          
+          throw directError;
+        }
         
-        throw dbError;
+        console.log('Succès avec insertion directe:', directData);
+      } else {
+        console.log('Succès avec la nouvelle fonction RPC:', rpcData);
       }
-
-      console.log('File record created:', fileData);
-
-      // Refresh file list
-      await fetchFiles();
-      fileInput.value = '';
-    } catch (error: any) {
-      console.error('Error uploading file:', error);
-      setError(`Failed to upload file: ${error.message || 'Unknown error'}`);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // Méthode alternative d'upload
-  const handleFileUploadAlternative = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileInput = e.target;
-    if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
-      return;
-    }
-
-    const file = fileInput.files[0];
-    const fileExt = file.name.split('.').pop();
-    if (fileExt?.toLowerCase() !== 'pdf') {
-      setError('Only PDF files are allowed');
-      return;
-    }
-
-    try {
-      setUploading(true);
-      setError(null);
-
-      // Sanitize the original filename
-      const sanitizedName = sanitizeFileName(file.name);
-      
-      // Create a unique filename with timestamp
-      const fileName = `${Date.now()}_${sanitizedName}`;
-      
-      // Create the storage path - use just the project ID and filename
-      const filePath = `${projectId}/${fileName}`;
-      
-      console.log('Uploading file to path:', filePath);
-      
-      // Upload file to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('pdfs')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('Upload error details:', uploadError);
-        throw uploadError;
-      }
-
-      console.log('File uploaded successfully:', uploadData);
-
-      // Utiliser la fonction helper pour créer l'enregistrement
-      const { data: fileData, error: createError } = await supabase.rpc('create_file_without_rls', {
-        file_name: file.name,
-        project_id: parseInt(projectId),
-        storage_path: filePath,
-        user_id: user?.id
-      });
-
-      if (createError) {
-        console.error('Create record error details:', createError);
-        
-        // Si l'insertion échoue, supprimer le fichier du stockage
-        await supabase.storage.from('pdfs').remove([filePath]);
-        
-        throw createError;
-      }
-
-      console.log('File record created:', fileData);
 
       // Refresh file list
       await fetchFiles();
@@ -231,12 +173,24 @@ const ProjectDetail: React.FC = () => {
 
       if (storageError) throw storageError;
 
-      // Delete from database
-      const { error: dbError } = await supabase.rpc('delete_file_without_rls', {
-        file_id: fileId
-      });
+      // Essayons d'abord avec la suppression directe
+      console.log('Tentative de suppression directe');
+      const { error: directDeleteError } = await deleteFileRecord(fileId);
 
-      if (dbError) throw dbError;
+      if (directDeleteError) {
+        console.error('Erreur suppression directe:', directDeleteError);
+        
+        // Si la suppression directe échoue, essayons avec la fonction RPC
+        console.log('Tentative avec la fonction RPC de suppression');
+        const { error: rpcError } = await supabase.rpc('delete_file_bypass_rls', {
+          p_file_id: fileId
+        });
+
+        if (rpcError) {
+          console.error('Erreur RPC suppression:', rpcError);
+          throw rpcError;
+        }
+      }
 
       // Update state
       setFiles(files.filter(f => f.id !== fileId));
@@ -304,17 +258,6 @@ const ProjectDetail: React.FC = () => {
                   className="hidden"
                   accept=".pdf"
                   onChange={handleFileUpload}
-                  disabled={uploading}
-                />
-              </label>
-              <label className="ml-2 cursor-pointer bg-green-100 py-2 px-3 border border-green-300 rounded-md shadow-sm text-sm leading-4 font-medium text-green-700 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-                <Upload className="h-4 w-4 inline mr-1" />
-                Méthode alternative
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".pdf"
-                  onChange={handleFileUploadAlternative}
                   disabled={uploading}
                 />
               </label>

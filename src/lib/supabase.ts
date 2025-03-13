@@ -48,9 +48,8 @@ export type File = {
   user_id?: string;
 };
 
-// Cette fonction n'est plus nécessaire car nous utilisons la fonction RPC
-// Mais nous la gardons pour référence
-export const createFileRecord = async (name: string, projetId: number, storagePath: string) => {
+// Fonction d'aide pour insérer directement un fichier
+export const createFileRecord = async (name: string, projetId: number, storagePath: string, userId?: string) => {
   try {
     // Insertion directe dans la table files
     const { data, error } = await supabase
@@ -58,7 +57,8 @@ export const createFileRecord = async (name: string, projetId: number, storagePa
       .insert({
         name: name,
         projet_id: projetId,
-        storage_path: storagePath
+        storage_path: storagePath,
+        user_id: userId
       })
       .select(); // Retourne les données insérées
     
@@ -66,6 +66,41 @@ export const createFileRecord = async (name: string, projetId: number, storagePa
     return { data, error: null };
   } catch (error) {
     console.error('Error creating file record:', error);
+    return { data: null, error };
+  }
+};
+
+// Fonction d'aide pour supprimer directement un fichier
+export const deleteFileRecord = async (fileId: number) => {
+  try {
+    const { data, error } = await supabase
+      .from('files')
+      .delete()
+      .eq('id', fileId);
+    
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error deleting file record:', error);
+    return { data: null, error };
+  }
+};
+
+// Fonction pour tester la fonction RPC
+export const testRpcFunction = async (fileName: string, projetId: number, storagePath: string, userId?: string) => {
+  try {
+    console.log('Calling RPC with params:', { fileName, projetId, storagePath, userId });
+    const { data, error } = await supabase.rpc('insert_file_bypass_rls', {
+      p_name: fileName,
+      p_projet_id: projetId,
+      p_storage_path: storagePath,
+      p_user_id: userId
+    });
+    
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error calling RPC function:', error);
     return { data: null, error };
   }
 };
