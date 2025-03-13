@@ -1,24 +1,70 @@
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import { HomePage } from './pages/HomePage';
-import { AuthPage } from './pages/AuthPage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { ProjectDetailPage } from './pages/ProjectDetailPage';
-import { FileDetailPage } from './pages/FileDetailPage';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Auth from './components/Auth';
+import Layout from './components/Layout';
+import ProjectList from './components/ProjectList';
+import ProjectDetail from './components/ProjectDetail';
+
+// Protected route component
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Public route that redirects if user is already authenticated
+const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  if (user) {
+    return <Navigate to="/projects" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+const AppRoutes: React.FC = () => {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={
+          <PublicRoute>
+            <Auth />
+          </PublicRoute>
+        } />
+        
+        <Route element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }>
+          <Route path="/projects" element={<ProjectList />} />
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Route>
+        
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
+  );
+};
 
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-          <Route path="/files/:fileId" element={<FileDetailPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Router>
+      <AppRoutes />
     </AuthProvider>
   );
 }
