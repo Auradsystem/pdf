@@ -1,23 +1,16 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { PDFFile } from '../../types';
-import { FileText, Trash2, Eye } from 'lucide-react';
+import { FileText, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface FileCardProps {
   file: PDFFile;
-  onDelete: (fileId: string, filePath: string) => void;
+  onDelete: (fileId: string | number) => void;
 }
 
 export const FileCard: React.FC<FileCardProps> = ({ file, onDelete }) => {
   const formattedDate = new Date(file.created_at).toLocaleDateString();
-  const formattedSize = formatFileSize(file.file_size);
-  
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return bytes + ' bytes';
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    else return (bytes / 1048576).toFixed(1) + ' MB';
-  }
   
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
@@ -33,31 +26,26 @@ export const FileCard: React.FC<FileCardProps> = ({ file, onDelete }) => {
                   {file.name}
                 </Link>
               </h3>
-              <p className="text-sm text-gray-500">
-                {formattedSize} • Uploaded on {formattedDate}
-              </p>
+              <p className="text-sm text-gray-500">Added on {formattedDate}</p>
             </div>
           </div>
-          <div className="flex space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              leftIcon={<Eye size={16} />}
-              as={Link}
-              to={`/files/${file.id}`}
-            >
-              View
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => onDelete(file.id, file.file_path)}
-              leftIcon={<Trash2 size={16} />}
-            >
-              Delete
-            </Button>
-          </div>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => onDelete(file.id)}
+            leftIcon={<Trash2 size={16} />}
+          >
+            Delete
+          </Button>
         </div>
+      </div>
+      <div className="bg-gray-50 px-5 py-3">
+        <Link
+          to={`/files/${file.id}`}
+          className="text-sm font-medium text-blue-600 hover:text-blue-800"
+        >
+          View & Annotate &rarr;
+        </Link>
       </div>
     </div>
   );

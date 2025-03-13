@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '../ui/Button';
-import { Upload, X } from 'lucide-react';
+import { Upload, X, FileText as FileIcon } from 'lucide-react';
 
 interface FileUploaderProps {
   onUpload: (file: File) => Promise<void>;
   isLoading: boolean;
+  onCancel?: () => void;
 }
 
-export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, isLoading }) => {
+export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, isLoading, onCancel }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,7 +71,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, isLoading 
             <div className="flex flex-col items-center justify-center pt-5 pb-6">
               {selectedFile ? (
                 <>
-                  <FileText className="w-8 h-8 mb-2 text-green-600" />
+                  <FileIcon className="w-8 h-8 mb-2 text-green-600" />
                   <p className="text-sm text-gray-700 font-medium">{selectedFile.name}</p>
                   <p className="text-xs text-gray-500">
                     {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
@@ -112,6 +113,16 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, isLoading 
               leftIcon={<X size={16} />}
             >
               Clear
+            </Button>
+          )}
+          {onCancel && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel}
+              disabled={isLoading}
+            >
+              Cancel
             </Button>
           )}
           <Button

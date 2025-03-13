@@ -1,49 +1,60 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { PDFFile } from '../types';
-import { useAuth } from '../context/AuthContext';
 
-export const useFiles = (projectId?: number) => {
+export const useFiles = (projectId?: string | number) => {
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuth();
+
+  useEffect(() => {
+    if (projectId) {
+      fetchFiles();
+    } else {
+      setFiles([]);
+      setLoading(false);
+    }
+  }, [projectId]);
 
   const fetchFiles = async () => {
     try {
       setLoading(true);
-      if (!user || !projectId) {
-        setFiles([]);
-        return;
-      }
-
       const { data, error } = await supabase
         .from('files')
         .select('*')
-        .eq('projet_id', projectId)
-        .order('created_at', { ascending: false });
+        .eq('projet_id', projectId);
 
-      if (error) throw error;
-      setFiles(data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error occurred'));
-      console.error('Error fetching files:', err);
+      if (error) {
+        throw error;
+      }
+
+      // Ensure files have both projet_id and project_id for compatibility
+      const processedFiles = (data || []).map(file => ({
+        ...file,
+        project_id: file.projet_id,
+        file_path: file.storage_path
+      }));
+
+      setFiles(processedFiles);
+    } catch (error) {
+      console.error('Error fetching files:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const uploadFile = async (file: File, projectId: number) => {
+  const uploadFile = async (file: File, projectId: string | number) => {
     try {
-      if (!user) throw new Error('User not authenticated');
-
       // Upload file to storage
-      const filePath = `${user.id}/${projectId}/${file.name}`;
+      const fileName = `${Date.now()}-${file.name}`;
+      const filePath = `files/${fileName}`;
+      
       const { error: uploadError } = await supabase.storage
-        .from('pdfs')
+        .from('pdf-files')
         .upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        throw uploadError;
+      }
 
       // Create file record in database
       const { data, error: dbError } = await supabase
@@ -55,73 +66,86 @@ export const useFiles = (projectId?: number) => {
             storage_path: filePath
           }
         ])
-        .select()
-        .single();
+        .select();
 
-      if (dbError) throw dbError;
-      setFiles(prev => [data, ...prev]);
-      return data;
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error occurred'));
-      console.error('Error uploading file:', err);
-      throw err;
+      if (dbError) {
+        throw dbError;
+      }
+
+      // Add file_path for compatibility
+      const newFile = data?.[0] ? {
+        ...data[0],
+        project_id: data[0].projet_id,
+        file_path: data[0].storage_path
+      } : null;
+
+      if (newFile) {
+        setFiles(prev => [...prev, newFile]);
+      }
+      
+      return newFile;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
     }
   };
 
-  const deleteFile = async (fileId: number, filePath: string) => {
+  const deleteFile = async (fileId: string | number) => {
     try {
-      if (!user) throw new Error('User not authenticated');
+      // Get file path first
+      const fileToDelete = files.find(f => f.id === fileId);
+      
+      if (fileToDelete?.storage_path) {
+        // Delete from storage
+        const { error: storageError } = await supabase.storage
+          .from('pdf-files')
+          .remove([fileToDelete.storage_path]);
 
-      // Delete file from storage
-      const { error: storageError } = await supabase.storage
-        .from('pdfs')
-        .remove([filePath]);
+        if (storageError) {
+          console.error('Error deleting file from storage:', storageError);
+        }
+      }
 
-      if (storageError) throw storageError;
-
-      // Delete file record from database
+      // Delete from database
       const { error: dbError } = await supabase
         .from('files')
         .delete()
         .eq('id', fileId);
 
-      if (dbError) throw dbError;
-      setFiles(prev => prev.filter(file => file.id !== fileId));
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error occurred'));
-      console.error('Error deleting file:', err);
-      throw err;
+      if (dbError) {
+        throw dbError;
+      }
+
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      throw error;
     }
   };
 
   const getFileUrl = async (filePath: string) => {
     try {
       const { data, error } = await supabase.storage
-        .from('pdfs')
-        .createSignedUrl(filePath, 3600); // 1 hour expiry
+        .from('pdf-files')
+        .createSignedUrl(filePath, 3600);
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+
       return data.signedUrl;
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error occurred'));
-      console.error('Error getting file URL:', err);
-      throw err;
+    } catch (error) {
+      console.error('Error getting file URL:', error);
+      throw error;
     }
   };
-
-  useEffect(() => {
-    if (projectId) {
-      fetchFiles();
-    }
-  }, [projectId, user]);
 
   return {
     files,
     loading,
-    error,
-    fetchFiles,
     uploadFile,
     deleteFile,
-    getFileUrl
+    getFileUrl,
+    refreshFiles: fetchFiles
   };
 };

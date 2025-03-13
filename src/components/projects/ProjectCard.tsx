@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 interface ProjectCardProps {
   project: Project;
   onEdit: (project: Project) => void;
-  onDelete: (projectId: string) => void;
+  onDelete: (projectId: string | number) => void;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onEdit, onDelete }) => {

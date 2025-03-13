@@ -5,7 +5,7 @@ import { Camera, MessageSquare, Highlighter, Trash2 } from 'lucide-react';
 
 interface AnnotationDetailProps {
   annotation: Annotation;
-  onDelete: (annotationId: string) => Promise<void>;
+  onDelete: (annotationId: string | number) => Promise<void>;
   onClose: () => void;
 }
 

@@ -4,27 +4,35 @@ export interface User {
 }
 
 export interface Project {
-  id: number;
+  id: number | string;
   created_at: string;
   name: string;
   user_id: string;
+  description?: string;
 }
 
 export interface PDFFile {
-  id: number;
+  id: number | string;
   created_at: string;
   name: string;
-  projet_id: number;
+  projet_id: number | string;
+  project_id?: number | string; // Alternative spelling
   storage_path: string;
+  file_path?: string; // Alternative property name
 }
 
 export interface Annotation {
-  id: number;
-  file_id: number;
+  id: number | string;
+  file_id: number | string;
   page_number: number;
   position_x: number;
   position_y: number;
   created_at: string;
+  annotation_type?: 'camera' | 'note' | 'highlight' | string;
+  content?: {
+    text?: string;
+    [key: string]: any;
+  };
 }
 
 export interface AuthContextType {

@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFiles } from '../hooks/useFiles';
 import { useAnnotations } from '../hooks/useAnnotations';
 import { Annotation } from '../types';
-import { ChevronLeft, Plus } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 
 export const FileDetailPage: React.FC = () => {
   const { fileId } = useParams<{ fileId: string }>();
@@ -34,9 +34,9 @@ export const FileDetailPage: React.FC = () => {
 
   useEffect(() => {
     if (fileId && files.length > 0) {
-      const file = files.find(f => f.id === fileId);
+      const file = files.find(f => f.id.toString() === fileId.toString());
       if (file) {
-        getFileUrl(file.file_path).then(url => {
+        getFileUrl(file.storage_path).then(url => {
           setFileUrl(url);
         }).catch(error => {
           console.error('Error getting file URL:', error);
@@ -61,7 +61,7 @@ export const FileDetailPage: React.FC = () => {
     return <Navigate to="/projects" replace />;
   }
 
-  const file = files.find(f => f.id === fileId);
+  const file = files.find(f => f.id.toString() === fileId.toString());
 
   if (!file) {
     return (
@@ -90,7 +90,7 @@ export const FileDetailPage: React.FC = () => {
     setIsDetailModalOpen(true);
   };
 
-  const handleAddAnnotation = (pageNumber: number, x: number, y: number) => {
+  const handleAddAnnotation = (_: number, x: number, y: number) => {
     setNewAnnotationPosition({ x, y });
     setIsAnnotationModalOpen(true);
   };
@@ -114,7 +114,7 @@ export const FileDetailPage: React.FC = () => {
     }
   };
 
-  const handleDeleteAnnotation = async (annotationId: string) => {
+  const handleDeleteAnnotation = async (annotationId: string | number) => {
     try {
       await deleteAnnotation(annotationId);
       setIsDetailModalOpen(false);
@@ -125,13 +125,14 @@ export const FileDetailPage: React.FC = () => {
   };
 
   const currentPageAnnotations = annotations.filter(a => a.page_number === currentPage);
+  const projectId = file.project_id || file.projet_id;
 
   return (
     <Layout>
       <div className="py-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
-            <Link to={`/projects/${file.project_id}`} className="text-blue-600 hover:text-blue-800 mr-4">
+            <Link to={`/projects/${projectId}`} className="text-blue-600 hover:text-blue-800 mr-4">
               <ChevronLeft size={20} />
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">{file.name}</h1>
