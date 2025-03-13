@@ -64,6 +64,15 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  // Function to sanitize filename for storage
+  const sanitizeFileName = (fileName: string): string => {
+    // Replace spaces and special characters with underscores
+    return fileName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     if (!fileInput.files || fileInput.files.length === 0 || !projectId || !user) {
@@ -81,25 +90,23 @@ const ProjectDetail: React.FC = () => {
       setUploading(true);
       setError(null);
 
-      // Create bucket if it doesn't exist
-      const { data: bucketData, error: bucketError } = await supabase.storage.getBucket('pdfs');
-      if (bucketError && bucketError.message.includes('not found')) {
-        // Bucket doesn't exist, create it
-        await supabase.storage.createBucket('pdfs', {
-          public: true,
-          fileSizeLimit: 10485760, // 10MB
-        });
-      }
-
-      // Upload file to Supabase Storage
-      const fileName = `${Date.now()}_${file.name}`;
-      const filePath = `${user.id}/${projectId}/${fileName}`;
+      // Sanitize the original filename
+      const sanitizedName = sanitizeFileName(file.name);
       
-      const { error: uploadError } = await supabase.storage
+      // Create a unique filename with timestamp
+      const fileName = `${Date.now()}_${sanitizedName}`;
+      
+      // Create the storage path
+      const filePath = `${projectId}/${fileName}`;
+      
+      console.log('Uploading file to path:', filePath);
+      
+      // Upload file to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('pdfs')
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: true
         });
 
       if (uploadError) {
@@ -107,12 +114,14 @@ const ProjectDetail: React.FC = () => {
         throw uploadError;
       }
 
+      console.log('File uploaded successfully:', uploadData);
+
       // Add file record to database
       const { error: dbError } = await supabase
         .from('files')
         .insert([
           {
-            name: file.name,
+            name: file.name, // Keep original name for display
             projet_id: projectId,
             storage_path: filePath
           }
