@@ -48,7 +48,8 @@ export type File = {
   user_id?: string;
 };
 
-// Fonction pour créer un fichier directement via insertion dans la table
+// Cette fonction n'est plus nécessaire car nous utilisons la fonction RPC
+// Mais nous la gardons pour référence
 export const createFileRecord = async (name: string, projetId: number, storagePath: string) => {
   try {
     // Insertion directe dans la table files
