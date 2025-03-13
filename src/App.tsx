@@ -6,6 +6,15 @@ import Layout from './components/Layout';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
 
+// App with routes wrapped in AuthProvider
+function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
+}
+
 // Protected route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -36,6 +45,7 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+// Routes component separated from App to ensure AuthProvider is available
 const AppRoutes: React.FC = () => {
   return (
     <Router>
@@ -60,13 +70,5 @@ const AppRoutes: React.FC = () => {
     </Router>
   );
 };
-
-function App() {
-  return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  );
-}
 
 export default App;
