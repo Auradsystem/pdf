@@ -48,65 +48,6 @@ export type File = {
   user_id?: string; // Add user_id field to match database schema
 };
 
-// Fonction de débogage pour vérifier les tables et leurs politiques RLS
-export const checkRLSStatus = async () => {
-  try {
-    console.log("Vérification du statut RLS...");
-    
-    // Vérifier si l'utilisateur est connecté
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log("Utilisateur connecté:", user?.id);
-    
-    // Tester l'accès à la table files
-    const { data: filesData, error: filesError } = await supabase
-      .from('files')
-      .select('*')
-      .limit(1);
-    
-    console.log("Test d'accès à la table files:");
-    console.log("- Données:", filesData);
-    console.log("- Erreur:", filesError);
-    
-    // Tester l'accès au bucket de stockage
-    const { data: storageData, error: storageError } = await supabase.storage
-      .from('pdfs')
-      .list();
-    
-    console.log("Test d'accès au bucket de stockage 'pdfs':");
-    console.log("- Données:", storageData);
-    console.log("- Erreur:", storageError);
-    
-    // Tester l'accès à la table projets
-    const { data: projetsData, error: projetsError } = await supabase
-      .from('projets')
-      .select('*')
-      .limit(1);
-    
-    console.log("Test d'accès à la table projets:");
-    console.log("- Données:", projetsData);
-    console.log("- Erreur:", projetsError);
-    
-    // Nous ne pouvons pas obtenir facilement la structure de la table via l'API Supabase
-    const tableInfo = "Non disponible via l'API";
-    const tableError = null;
-    
-    console.log("Structure de la table files:");
-    console.log("- Données:", tableInfo);
-    console.log("- Erreur:", tableError);
-    
-    return {
-      user: user?.id,
-      filesAccess: !filesError,
-      storageAccess: !storageError,
-      projetsAccess: !projetsError,
-      tableInfo: tableInfo
-    };
-  } catch (error) {
-    console.error("Erreur lors de la vérification du statut RLS:", error);
-    return { error };
-  }
-};
-
 // Fonction pour créer un fichier directement via insertion dans la table
 export const createFileRecord = async (name: string, projetId: number, storagePath: string) => {
   try {
