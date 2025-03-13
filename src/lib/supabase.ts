@@ -86,9 +86,9 @@ export const checkRLSStatus = async () => {
     console.log("- Données:", projetsData);
     console.log("- Erreur:", projetsError);
     
-    // Vérifier la structure de la table files
-    const { data: tableInfo, error: tableError } = await supabase
-      .rpc('get_table_info', { table_name: 'files' });
+    // Nous ne pouvons pas obtenir facilement la structure de la table via l'API Supabase
+    const tableInfo = "Non disponible via l'API";
+    const tableError = null;
     
     console.log("Structure de la table files:");
     console.log("- Données:", tableInfo);
@@ -107,15 +107,18 @@ export const checkRLSStatus = async () => {
   }
 };
 
-// Fonction pour créer un fichier directement via SQL
+// Fonction pour créer un fichier directement via insertion dans la table
 export const createFileRecord = async (name: string, projetId: number, storagePath: string) => {
   try {
-    // Utiliser une requête SQL directe pour contourner RLS
-    const { data, error } = await supabase.rpc('insert_file_record', {
-      file_name: name,
-      file_path: storagePath,
-      project_id: projetId
-    });
+    // Insertion directe dans la table files
+    const { data, error } = await supabase
+      .from('files')
+      .insert({
+        name: name,
+        projet_id: projetId,
+        storage_path: storagePath
+      })
+      .select(); // Retourne les données insérées
     
     if (error) throw error;
     return { data, error: null };

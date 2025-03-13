@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, Project, File as PDFFile, checkRLSStatus } from '../lib/supabase';
+import { supabase, Project, File as PDFFile, checkRLSStatus, createFileRecord } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Upload, FileText, ArrowLeft, Trash2, AlertCircle } from 'lucide-react';
 import PDFViewer from './PDFViewer';
@@ -80,7 +80,7 @@ const ProjectDetail: React.FC = () => {
       .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
   };
 
-  // Nouvelle approche pour l'upload de fichier
+  // Méthode d'upload simplifiée
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
@@ -98,9 +98,6 @@ const ProjectDetail: React.FC = () => {
       setUploading(true);
       setError(null);
 
-      // Vérifier à nouveau le statut RLS avant l'upload
-      await checkRLS();
-
       // Sanitize the original filename
       const sanitizedName = sanitizeFileName(file.name);
       
@@ -112,36 +109,42 @@ const ProjectDetail: React.FC = () => {
       
       console.log('Uploading file to path:', filePath);
       
-      // Utiliser la fonction rpc pour contourner RLS
-      const { data: fileData, error: rpcError } = await supabase.rpc('create_file_with_upload', {
-        p_name: file.name,
-        p_projet_id: projectId,
-        p_storage_path: filePath
-      });
+      // 1. Upload file to Supabase Storage first
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('pdfs')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
 
-      if (rpcError) {
-        console.error('RPC error details:', rpcError);
-        throw rpcError;
+      if (uploadError) {
+        console.error('Upload error details:', uploadError);
+        throw uploadError;
       }
 
-      console.log('File record created via RPC:', fileData);
+      console.log('File uploaded successfully:', uploadData);
 
-      // Si l'RPC a réussi, maintenant télécharger le fichier
-      if (fileData) {
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('pdfs')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: true
-          });
+      // 2. Create file record in database
+      const { data: fileData, error: dbError } = await supabase
+        .from('files')
+        .insert({
+          name: file.name,
+          projet_id: parseInt(projectId),
+          storage_path: filePath,
+          user_id: user?.id // Ajouter l'ID de l'utilisateur
+        })
+        .select();
 
-        if (uploadError) {
-          console.error('Upload error details:', uploadError);
-          throw uploadError;
-        }
-
-        console.log('File uploaded successfully:', uploadData);
+      if (dbError) {
+        console.error('Database error details:', dbError);
+        
+        // Si l'insertion échoue, supprimer le fichier du stockage
+        await supabase.storage.from('pdfs').remove([filePath]);
+        
+        throw dbError;
       }
+
+      console.log('File record created:', fileData);
 
       // Refresh file list
       await fetchFiles();
@@ -154,7 +157,7 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  // Méthode alternative d'upload si la première échoue
+  // Méthode alternative d'upload
   const handleFileUploadAlternative = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
@@ -198,19 +201,23 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // Utiliser directement SQL pour insérer dans la table files
-      const { data: fileData, error: sqlError } = await supabase.rpc('insert_file_record', {
-        file_name: file.name,
-        file_path: filePath,
-        project_id: projectId
-      });
+      // Utiliser la fonction helper pour créer l'enregistrement
+      const { data: fileData, error: createError } = await createFileRecord(
+        file.name,
+        parseInt(projectId),
+        filePath
+      );
 
-      if (sqlError) {
-        console.error('SQL error details:', sqlError);
-        throw sqlError;
+      if (createError) {
+        console.error('Create record error details:', createError);
+        
+        // Si l'insertion échoue, supprimer le fichier du stockage
+        await supabase.storage.from('pdfs').remove([filePath]);
+        
+        throw createError;
       }
 
-      console.log('File record created via SQL:', fileData);
+      console.log('File record created:', fileData);
 
       // Refresh file list
       await fetchFiles();
