@@ -129,7 +129,7 @@ const ProjectDetail: React.FC = () => {
         console.error('Erreur avec la nouvelle fonction RPC:', rpcError);
         
         // Si la fonction RPC échoue, essayons l'insertion directe
-        console.log('Tentative d'insertion directe');
+        console.log("Tentative d'insertion directe");
         const { data: directData, error: directError } = await createFileRecord(
           file.name,
           parseInt(projectId),
@@ -174,14 +174,14 @@ const ProjectDetail: React.FC = () => {
       if (storageError) throw storageError;
 
       // Essayons d'abord avec la suppression directe
-      console.log('Tentative de suppression directe');
+      console.log("Tentative de suppression directe");
       const { error: directDeleteError } = await deleteFileRecord(fileId);
 
       if (directDeleteError) {
         console.error('Erreur suppression directe:', directDeleteError);
         
         // Si la suppression directe échoue, essayons avec la fonction RPC
-        console.log('Tentative avec la fonction RPC de suppression');
+        console.log("Tentative avec la fonction RPC de suppression");
         const { error: rpcError } = await supabase.rpc('delete_file_bypass_rls', {
           p_file_id: fileId
         });
