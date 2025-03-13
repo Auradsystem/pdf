@@ -72,68 +72,93 @@ const ProjectDetail: React.FC = () => {
       return;
     }
 
+    let filePath: string | undefined;
+
     try {
       setUploading(true);
       setError(null);
 
       // 1. Upload file to storage
       const fileName = `${Date.now()}_${file.name}`;
-      const filePath = `${projectId}/${fileName}`;
+      filePath = `${projectId}/${fileName}`;
+      
+      console.log("Tentative d'upload du fichier dans le stockage...");
+      console.log("Chemin de stockage:", filePath);
       
       const { error: uploadError } = await supabase.storage
         .from('pdfs')
         .upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("Erreur lors de l'upload dans le stockage:", uploadError);
+        throw uploadError;
+      }
+      
+      console.log("Fichier uploadé avec succès dans le stockage");
 
-      // CODE DE DÉBOGAGE
-      console.log("Détails du projet et de l'utilisateur :");
-      console.log("User ID:", user.id);
-      console.log("Project ID:", projectId);
-
-      // Vérifier que le projet existe et appartient à l'utilisateur connecté
-      const { data: projectCheck } = await supabase
+      // Vérification du projet avant insertion
+      console.log("Tentative de récupération du projet...");
+      const { data: projectCheck, error: projectError } = await supabase
         .from('projets')
-        .select('*')
+        .select('user_id')
         .eq('id', parseInt(projectId))
-        .eq('user_id', user.id)
         .single();
-        
-      console.log("Projet trouvé:", projectCheck);
 
-      // Si le projet n'appartient pas à l'utilisateur, afficher un message clair
+      console.log("Résultat de la vérification du projet:", projectCheck);
+      console.log("Erreur éventuelle:", projectError);
+      console.log("ID utilisateur connecté:", user.id);
+      console.log("ID propriétaire du projet:", projectCheck?.user_id);
+      console.log("Comparaison (===):", user.id === projectCheck?.user_id);
+      console.log("Comparaison (après conversion):", String(user.id) === String(projectCheck?.user_id));
+
+      if (projectError) {
+        console.error("Erreur lors de la vérification du projet:", projectError);
+        throw projectError;
+      }
+
       if (!projectCheck) {
-        console.error("PROBLÈME: Ce projet n'existe pas ou n'appartient pas à l'utilisateur");
-        setError("Vous n'avez pas les droits sur ce projet");
+        console.error("PROBLÈME: Projet non trouvé");
+        setError("Le projet n'existe pas");
         
-        // Essayer de nettoyer le fichier uploadé
-        try {
-          await supabase.storage.from('pdfs').remove([filePath]);
-        } catch (cleanupError) {
-          console.error('Error cleaning up storage after project check failed:', cleanupError);
-        }
-        
+        // Nettoyer le fichier uploadé
+        await supabase.storage.from('pdfs').remove([filePath]);
         return;
       }
 
-      // Procéder à l'insertion normalement
+      if (String(user.id) !== String(projectCheck.user_id)) {
+        console.error("PROBLÈME: L'utilisateur n'est pas propriétaire du projet");
+        console.error(`User ID: ${user.id} (${typeof user.id}), Project Owner ID: ${projectCheck.user_id} (${typeof projectCheck.user_id})`);
+        setError("Vous n'avez pas les droits sur ce projet");
+        
+        // Nettoyer le fichier uploadé
+        await supabase.storage.from('pdfs').remove([filePath]);
+        return;
+      }
+
+      // Maintenant l'insertion
+      const insertData = {
+        name: file.name,
+        projet_id: parseInt(projectId),
+        storage_path: filePath,
+        user_id: user.id
+      };
+      console.log("Données à insérer:", insertData);
+
       const { data, error: dbError } = await supabase
         .from('files')
-        .insert({
-          name: file.name,
-          projet_id: parseInt(projectId),
-          storage_path: filePath,
-          user_id: user.id
-        })
+        .insert(insertData)
         .select()
         .single();
+
+      console.log("Résultat de l'insertion:", data);
+      console.log("Erreur d'insertion:", dbError);
 
       if (dbError) {
         console.error("Erreur d'insertion:", dbError);
         throw dbError;
       }
 
-      console.log("Fichier inséré avec succès:", data);
+      console.log("Fichier inséré avec succès dans la base de données:", data);
 
       // 3. Update UI
       setFiles([data, ...files]);
@@ -156,6 +181,7 @@ const ProjectDetail: React.FC = () => {
       try {
         if (filePath) {
           await supabase.storage.from('pdfs').remove([filePath]);
+          console.log("Fichier nettoyé du stockage après échec");
         }
       } catch (cleanupError) {
         console.error('Error cleaning up storage after failed DB insert:', cleanupError);
