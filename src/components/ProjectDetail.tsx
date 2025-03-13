@@ -96,10 +96,26 @@ const ProjectDetail: React.FC = () => {
       // Create a unique filename with timestamp
       const fileName = `${Date.now()}_${sanitizedName}`;
       
-      // Create the storage path
+      // Create the storage path - use just the project ID and filename
       const filePath = `${projectId}/${fileName}`;
       
       console.log('Uploading file to path:', filePath);
+      
+      // First, check if the project belongs to the current user
+      const { data: projectData, error: projectError } = await supabase
+        .from('projets')
+        .select('user_id')
+        .eq('id', projectId)
+        .single();
+        
+      if (projectError) {
+        console.error('Project verification error:', projectError);
+        throw new Error('Could not verify project ownership');
+      }
+      
+      if (projectData.user_id !== user.id) {
+        throw new Error('You do not have permission to upload files to this project');
+      }
       
       // Upload file to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -116,21 +132,25 @@ const ProjectDetail: React.FC = () => {
 
       console.log('File uploaded successfully:', uploadData);
 
-      // Add file record to database
-      const { error: dbError } = await supabase
+      // Add file record to database with explicit user_id
+      const { data: fileData, error: dbError } = await supabase
         .from('files')
         .insert([
           {
             name: file.name, // Keep original name for display
             projet_id: projectId,
-            storage_path: filePath
+            storage_path: filePath,
+            user_id: user.id // Add user_id explicitly to satisfy RLS policies
           }
-        ]);
+        ])
+        .select();
 
       if (dbError) {
         console.error('Database error details:', dbError);
         throw dbError;
       }
+
+      console.log('File record created:', fileData);
 
       // Refresh file list
       await fetchFiles();

@@ -45,4 +45,5 @@ export type File = {
   name: string;
   projet_id: number;
   storage_path: string;
+  user_id?: string; // Add user_id field to match database schema
 };
