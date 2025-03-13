@@ -1,37 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase, Project } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Folder } from 'lucide-react';
+import { Plus, Folder, Trash2 } from 'lucide-react';
 
 const ProjectList: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newProjectName, setNewProjectName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
+  const [creating, setCreating] = useState(false);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchProjects();
-  }, [user]);
+  }, []);
 
   const fetchProjects = async () => {
     try {
-      if (!user) return;
-      
       setLoading(true);
+      setError(null);
+
       const { data, error } = await supabase
         .from('projets')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      
+      console.log("Projets récupérés:", data);
       setProjects(data || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching projects:', error);
-      setError('Failed to load projects');
+      setError(`Failed to load projects: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -39,36 +41,65 @@ const ProjectList: React.FC = () => {
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!newProjectName.trim() || !user) return;
 
     try {
-      setIsCreating(true);
+      setCreating(true);
       setError(null);
+
+      const newProject = {
+        name: newProjectName.trim(),
+        user_id: user.id
+      };
+      
+      console.log("Création du projet:", newProject);
 
       const { data, error } = await supabase
         .from('projets')
-        .insert({
-          name: newProjectName.trim(),
-          user_id: user.id
-        })
+        .insert(newProject)
         .select()
         .single();
 
       if (error) throw error;
 
+      console.log("Projet créé:", data);
+      
+      // Add to list and reset form
       setProjects([data, ...projects]);
       setNewProjectName('');
-      setIsCreating(false);
+      
+      // Navigate to the new project
+      navigate(`/projects/${data.id}`);
     } catch (error: any) {
       console.error('Error creating project:', error);
       setError(`Failed to create project: ${error.message}`);
-      setIsCreating(false);
+    } finally {
+      setCreating(false);
     }
   };
 
-  if (loading && projects.length === 0) {
-    return <div className="text-center py-10">Loading projects...</div>;
-  }
+  const handleDeleteProject = async (projectId: number) => {
+    if (!confirm('Are you sure you want to delete this project? All associated files will also be deleted.')) return;
+
+    try {
+      setError(null);
+
+      // 1. Delete the project (cascade should handle files)
+      const { error } = await supabase
+        .from('projets')
+        .delete()
+        .eq('id', projectId);
+
+      if (error) throw error;
+
+      // 2. Update UI
+      setProjects(projects.filter(project => project.id !== projectId));
+    } catch (error: any) {
+      console.error('Error deleting project:', error);
+      setError(`Failed to delete project: ${error.message}`);
+    }
+  };
 
   return (
     <div>
@@ -85,36 +116,30 @@ const ProjectList: React.FC = () => {
       )}
 
       <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
-        <div className="px-4 py-5 sm:p-6">
+        <div className="px-4 py-5 sm:px-6">
           <h3 className="text-lg leading-6 font-medium text-gray-900">
-            Create a new project
+            Create New Project
           </h3>
-          <div className="mt-2 max-w-xl text-sm text-gray-500">
-            <p>Create a new project to upload and manage PDF files.</p>
-          </div>
-          <form onSubmit={handleCreateProject} className="mt-5 sm:flex sm:items-center">
-            <div className="w-full sm:max-w-xs">
-              <label htmlFor="projectName" className="sr-only">
-                Project Name
-              </label>
+        </div>
+        <div className="border-t border-gray-200 px-4 py-5 sm:p-6">
+          <form onSubmit={handleCreateProject} className="flex gap-3">
+            <div className="flex-grow">
               <input
                 type="text"
-                name="projectName"
-                id="projectName"
-                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                placeholder="Project Name"
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
-                disabled={isCreating}
+                placeholder="Enter project name"
+                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                disabled={creating}
               />
             </div>
             <button
               type="submit"
-              className="mt-3 w-full inline-flex items-center justify-center px-4 py-2 border border-transparent shadow-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-              disabled={isCreating || !newProjectName.trim()}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              disabled={creating || !newProjectName.trim()}
             >
               <Plus className="h-4 w-4 mr-1" />
-              {isCreating ? 'Creating...' : 'Create Project'}
+              {creating ? 'Creating...' : 'Create Project'}
             </button>
           </form>
         </div>
@@ -127,34 +152,41 @@ const ProjectList: React.FC = () => {
           </h3>
         </div>
         <div className="border-t border-gray-200">
-          {projects.length === 0 ? (
+          {loading ? (
+            <div className="px-4 py-5 sm:p-6 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto"></div>
+              <p className="mt-2 text-sm text-gray-500">Loading projects...</p>
+            </div>
+          ) : projects.length === 0 ? (
             <div className="px-4 py-5 sm:p-6 text-center text-gray-500">
-              You don't have any projects yet. Create your first project above.
+              No projects found. Create your first project above.
             </div>
           ) : (
             <ul className="divide-y divide-gray-200">
               {projects.map((project) => (
-                <li key={project.id}>
-                  <Link
-                    to={`/projects/${project.id}`}
-                    className="block hover:bg-gray-50"
-                  >
-                    <div className="px-4 py-4 sm:px-6">
-                      <div className="flex items-center">
-                        <Folder className="h-5 w-5 text-indigo-500 mr-2" />
-                        <p className="text-sm font-medium text-indigo-600 truncate">
-                          {project.name}
-                        </p>
-                      </div>
-                      <div className="mt-2 sm:flex sm:justify-between">
-                        <div className="sm:flex">
-                          <p className="flex items-center text-sm text-gray-500">
-                            Created on {new Date(project.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
+                <li key={project.id} className="px-4 py-4 sm:px-6">
+                  <div className="flex items-center justify-between">
+                    <Link
+                      to={`/projects/${project.id}`}
+                      className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-900"
+                    >
+                      <Folder className="h-5 w-5 text-gray-400 mr-2" />
+                      {project.name}
+                    </Link>
+                    <div className="ml-2 flex-shrink-0 flex">
+                      <button
+                        onClick={() => handleDeleteProject(project.id)}
+                        className="ml-2 flex items-center text-sm text-red-600 hover:text-red-900"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                  </Link>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-500">
+                      Created on {new Date(project.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

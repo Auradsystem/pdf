@@ -1,20 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, Project, File as PDFFile, createFileRecord, deleteFileRecord, testRpcFunction, insertFileWithSQL } from '../lib/supabase';
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { supabase, Project, File } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Upload, FileText, ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, FileText } from 'lucide-react';
 import PDFViewer from './PDFViewer';
 
 const ProjectDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<Project | null>(null);
-  const [files, setFiles] = useState<PDFFile[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<PDFFile | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (projectId) {
@@ -25,7 +25,7 @@ const ProjectDetail: React.FC = () => {
 
   const fetchProject = async () => {
     try {
-      if (!projectId || !user) return;
+      if (!projectId) return;
       
       const { data, error } = await supabase
         .from('projets')
@@ -37,8 +37,7 @@ const ProjectDetail: React.FC = () => {
       setProject(data);
     } catch (error) {
       console.error('Error fetching project:', error);
-      setError('Failed to load project');
-      navigate('/projects');
+      setError('Failed to load project details');
     }
   };
 
@@ -47,7 +46,6 @@ const ProjectDetail: React.FC = () => {
       if (!projectId) return;
       
       setLoading(true);
-      // Utiliser une requête SQL brute pour contourner RLS
       const { data, error } = await supabase
         .from('files')
         .select('*')
@@ -64,25 +62,12 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  // Function to sanitize filename for storage
-  const sanitizeFileName = (fileName: string): string => {
-    // Replace spaces and special characters with underscores
-    return fileName
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .replace(/[^a-zA-Z0-9.-]/g, '_'); // Replace special chars with underscore
-  };
-
-  // Méthode d'upload simplifiée et directe
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileInput = e.target;
-    if (!fileInput.files || fileInput.files.length === 0 || !projectId) {
-      return;
-    }
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0 || !projectId || !user) return;
 
-    const file = fileInput.files[0];
-    const fileExt = file.name.split('.').pop();
-    if (fileExt?.toLowerCase() !== 'pdf') {
+    const file = fileList[0];
+    if (file.type !== 'application/pdf') {
       setError('Only PDF files are allowed');
       return;
     }
@@ -91,70 +76,65 @@ const ProjectDetail: React.FC = () => {
       setUploading(true);
       setError(null);
 
-      // Sanitize the original filename
-      const sanitizedName = sanitizeFileName(file.name);
-      
-      // Create a unique filename with timestamp
-      const fileName = `${Date.now()}_${sanitizedName}`;
-      
-      // Create the storage path - use just the project ID and filename
+      // 1. Upload file to storage
+      const fileName = `${Date.now()}_${file.name}`;
       const filePath = `${projectId}/${fileName}`;
       
-      console.log('Uploading file to path:', filePath);
-      
-      // 1. Upload file to Supabase Storage first
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('pdfs')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+        .upload(filePath, file);
 
-      if (uploadError) {
-        console.error('Upload error details:', uploadError);
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
-      console.log('File uploaded successfully:', uploadData);
-
-      // 2. Essayer d'insérer le fichier dans la base de données avec la fonction RPC
-      console.log('Inserting file record with RPC function');
-      const { error: rpcError } = await supabase.rpc('insert_file_bypass_rls', {
-        p_name: file.name,
-        p_projet_id: parseInt(projectId),
-        p_storage_path: filePath,
-        p_user_id: user?.id || null
-      });
+      // Données d'insertion pour le débogage
+      const insertData = {
+        name: file.name,
+        projet_id: parseInt(projectId),
+        storage_path: filePath,
+        user_id: user.id
+      };
       
-      if (rpcError) {
-        console.error('RPC error details:', rpcError);
-        
-        // Si la fonction RPC échoue, essayer l'insertion directe
-        console.log('Trying direct insert as fallback');
-        const { error: insertError } = await supabase
-          .from('files')
-          .insert({
-            name: file.name,
-            projet_id: parseInt(projectId),
-            storage_path: filePath,
-            user_id: user?.id
-          });
-        
-        if (insertError) {
-          console.error('Insert error details:', insertError);
-          
-          // Si l'insertion directe échoue aussi, supprimer le fichier du stockage
-          await supabase.storage.from('pdfs').remove([filePath]);
-          throw new Error(`Failed to create file record: ${insertError.message}`);
-        }
+      console.log("Données d'insertion:", insertData);
+
+      // 2. Create file record in database
+      const { data, error: dbError } = await supabase
+        .from('files')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error("Erreur d'insertion:", dbError);
+        throw dbError;
       }
 
-      // Refresh file list
-      await fetchFiles();
-      fileInput.value = '';
+      console.log("Fichier inséré avec succès:", data);
+
+      // 3. Update UI
+      setFiles([data, ...files]);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error: any) {
       console.error('Error uploading file:', error);
-      setError(`Failed to upload file: ${error.message || 'Unknown error'}`);
+      
+      // Si l'erreur est liée à RLS, donnez un message plus clair
+      if (error.message?.includes('policy') || error.message?.includes('permission')) {
+        setError(`Erreur de permission: Vous n'avez pas les droits nécessaires pour ajouter un fichier à ce projet.`);
+      } else {
+        setError(`Failed to upload file: ${error.message}`);
+      }
+      
+      // Essayer de nettoyer le fichier uploadé si l'insertion en DB a échoué
+      try {
+        if (filePath) {
+          await supabase.storage.from('pdfs').remove([filePath]);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up storage after failed DB insert:', cleanupError);
+      }
     } finally {
       setUploading(false);
     }
@@ -164,66 +144,56 @@ const ProjectDetail: React.FC = () => {
     if (!confirm('Are you sure you want to delete this file?')) return;
 
     try {
-      // Delete from storage
+      setError(null);
+
+      // 1. Delete from storage
       const { error: storageError } = await supabase.storage
         .from('pdfs')
         .remove([storagePath]);
 
       if (storageError) throw storageError;
 
-      // Delete from database using RPC function
-      console.log('Deleting file record with RPC function');
-      const { error: rpcError } = await supabase.rpc('delete_file_bypass_rls', {
-        p_file_id: fileId
-      });
-      
-      if (rpcError) {
-        console.error('RPC error details:', rpcError);
-        
-        // Si la fonction RPC échoue, essayer la suppression directe
-        console.log('Trying direct delete as fallback');
-        const { error: deleteError } = await supabase
-          .from('files')
-          .delete()
-          .eq('id', fileId);
-        
-        if (deleteError) {
-          console.error('Delete error details:', deleteError);
-          throw new Error(`Failed to delete file record: ${deleteError.message}`);
-        }
-      }
+      // 2. Delete from database
+      const { error: dbError } = await supabase
+        .from('files')
+        .delete()
+        .eq('id', fileId);
 
-      // Update state
-      setFiles(files.filter(f => f.id !== fileId));
-      if (selectedFile?.id === fileId) {
+      if (dbError) throw dbError;
+
+      // 3. Update UI
+      setFiles(files.filter(file => file.id !== fileId));
+      
+      // Reset selected file if it was deleted
+      if (selectedFile && selectedFile.id === fileId) {
         setSelectedFile(null);
       }
     } catch (error: any) {
       console.error('Error deleting file:', error);
-      setError(`Failed to delete file: ${error.message || 'Unknown error'}`);
+      setError(`Failed to delete file: ${error.message}`);
     }
   };
 
-  const getFileUrl = (storagePath: string) => {
-    const { data } = supabase.storage.from('pdfs').getPublicUrl(storagePath);
-    return data.publicUrl;
+  const handleViewFile = (file: File) => {
+    setSelectedFile(file);
   };
 
   if (loading && !project) {
-    return <div className="text-center py-10">Loading project...</div>;
+    return <div className="text-center py-10">Loading project details...</div>;
   }
 
   return (
     <div>
-      <div className="mb-5">
-        <button
-          onClick={() => navigate('/projects')}
-          className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
+      <div className="mb-6">
+        <Link to="/projects" className="inline-flex items-center text-indigo-600 hover:text-indigo-900">
           <ArrowLeft className="h-4 w-4 mr-1" />
           Back to Projects
-        </button>
+        </Link>
       </div>
+
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">
+        {project?.name || 'Project Details'}
+      </h1>
 
       {error && (
         <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
@@ -235,83 +205,88 @@ const ProjectDetail: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
-        <div className="px-4 py-5 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">
-            {project?.name}
-          </h3>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Created on {project?.created_at && new Date(project.created_at).toLocaleDateString()}
-          </p>
-        </div>
-
-        <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Upload PDF
-            </label>
-            <div className="flex items-center">
-              <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                <Upload className="h-4 w-4 inline mr-1" />
-                {uploading ? 'Uploading...' : 'Choose PDF file'}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-1">
+          <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
+            <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                PDF Files
+              </h3>
+              <div>
                 <input
                   type="file"
-                  className="hidden"
-                  accept=".pdf"
+                  ref={fileInputRef}
                   onChange={handleFileUpload}
+                  accept="application/pdf"
+                  className="hidden"
                   disabled={uploading}
                 />
-              </label>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  disabled={uploading}
+                >
+                  <Upload className="h-4 w-4 mr-1" />
+                  {uploading ? 'Uploading...' : 'Upload PDF'}
+                </button>
+              </div>
+            </div>
+            <div className="border-t border-gray-200">
+              {files.length === 0 ? (
+                <div className="px-4 py-5 sm:p-6 text-center text-gray-500">
+                  No PDF files uploaded yet. Upload your first PDF file.
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-200">
+                  {files.map((file) => (
+                    <li key={file.id} className="px-4 py-4 sm:px-6">
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => handleViewFile(file)}
+                          className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-900 truncate"
+                        >
+                          <FileText className="h-5 w-5 text-gray-400 mr-2" />
+                          {file.name}
+                        </button>
+                        <div className="ml-2 flex-shrink-0 flex">
+                          <button
+                            onClick={() => handleDeleteFile(file.id, file.storage_path)}
+                            className="ml-2 flex items-center text-sm text-red-600 hover:text-red-900"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-xs text-gray-500">
+                          Uploaded on {new Date(file.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
+        </div>
 
-          <h4 className="text-md font-medium text-gray-700 mb-2">PDF Files</h4>
-          {files.length === 0 ? (
-            <p className="text-sm text-gray-500">No files uploaded yet.</p>
+        <div className="md:col-span-2">
+          {selectedFile ? (
+            <PDFViewer file={selectedFile} />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {files.map((file) => (
-                <div
-                  key={file.id}
-                  className={`border rounded-lg p-3 cursor-pointer ${
-                    selectedFile?.id === file.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
-                  }`}
-                  onClick={() => setSelectedFile(file)}
-                >
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center">
-                      <FileText className="h-5 w-5 text-indigo-500 mr-2" />
-                      <span className="text-sm font-medium">{file.name}</span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteFile(file.id, file.storage_path);
-                      }}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div className="bg-white shadow overflow-hidden sm:rounded-lg h-full flex items-center justify-center">
+              <div className="text-center p-12">
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No PDF Selected</h3>
+                <p className="text-sm text-gray-500">
+                  Select a PDF file from the list to view it here.
+                </p>
+              </div>
             </div>
           )}
         </div>
       </div>
-
-      {selectedFile && (
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          <div className="px-4 py-5 sm:px-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">
-              {selectedFile.name}
-            </h3>
-          </div>
-          <div className="border-t border-gray-200">
-            <PDFViewer fileUrl={getFileUrl(selectedFile.storage_path)} />
-          </div>
-        </div>
-      )}
     </div>
   );
 };
